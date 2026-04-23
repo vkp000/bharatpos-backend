@@ -36,7 +36,6 @@ public class AuthService {
             throw new BadRequestException("Phone number already registered");
         }
 
-        // Create Tenant
         Tenant tenant = Tenant.builder()
                 .businessName(request.getBusinessName())
                 .phone(request.getPhone())
@@ -47,16 +46,14 @@ public class AuthService {
                 .build();
         tenant = tenantRepository.save(tenant);
 
-        // Create default Store
         Store store = Store.builder()
                 .tenant(tenant)
                 .name("Main Branch")
-                .city(request.getState())
+                .city(request.getState() != null ? request.getState() : "India")
                 .storeCode("MAIN-" + tenant.getId())
                 .build();
         store = storeRepository.save(store);
 
-        // Create Owner user
         User user = User.builder()
                 .tenant(tenant)
                 .store(store)
@@ -76,16 +73,24 @@ public class AuthService {
         return buildAuthResponse(user, tenant, store, accessToken, refreshToken);
     }
 
+    @Transactional(readOnly = true)
     public AuthResponse login(LoginRequest request) {
         authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(request.getIdentifier(), request.getPassword())
+                new UsernamePasswordAuthenticationToken(
+                        request.getIdentifier(), request.getPassword())
         );
 
-        User user = userRepository.findByPhoneOrEmail(request.getIdentifier(), request.getIdentifier())
+        User user = userRepository.findByPhoneOrEmail(
+                        request.getIdentifier(), request.getIdentifier())
                 .orElseThrow(() -> new BadRequestException("User not found"));
 
-        Tenant tenant = user.getTenant();
-        Store store = user.getStore();
+        Tenant tenant = tenantRepository.findById(user.getTenant().getId())
+                .orElseThrow(() -> new BadRequestException("Tenant not found"));
+
+        Store store = null;
+        if (user.getStore() != null) {
+            store = storeRepository.findById(user.getStore().getId()).orElse(null);
+        }
 
         String accessToken = jwtService.generateAccessToken(
                 user.getId(), tenant.getId(),
@@ -115,6 +120,7 @@ public class AuthService {
     }
 
     private String getAvatar(String name) {
+        if (name == null || name.isBlank()) return "BP";
         String[] parts = name.trim().split("\\s+");
         StringBuilder sb = new StringBuilder();
         for (String part : parts) {

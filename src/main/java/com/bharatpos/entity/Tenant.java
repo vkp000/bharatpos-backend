@@ -1,5 +1,6 @@
 package com.bharatpos.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -47,9 +48,11 @@ public class Tenant {
     @UpdateTimestamp
     private LocalDateTime updatedAt;
 
+    @JsonIgnore
     @OneToMany(mappedBy = "tenant", cascade = CascadeType.ALL)
     private List<Store> stores;
 
+    @JsonIgnore
     @OneToMany(mappedBy = "tenant", cascade = CascadeType.ALL)
     private List<User> users;
 }
