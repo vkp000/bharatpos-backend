@@ -25,6 +25,7 @@ public class CustomerService {
     }
 
     public List<Customer> searchCustomers(Long tenantId, String query) {
+        if (query == null || query.isBlank()) return getAllCustomers(tenantId);
         return customerRepository.searchCustomers(tenantId, query);
     }
 
@@ -36,15 +37,18 @@ public class CustomerService {
     @Transactional
     public Customer createCustomer(Long tenantId, CustomerRequest request) {
         customerRepository.findByPhoneAndTenantId(request.getPhone(), tenantId)
-                .ifPresent(c -> { throw new BadRequestException("Customer with this phone already exists"); });
+                .ifPresent(c -> {
+                    throw new BadRequestException(
+                            "Customer with phone " + request.getPhone() + " already exists");
+                });
 
         Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Tenant", tenantId));
 
         Customer customer = Customer.builder()
                 .tenant(tenant)
-                .name(request.getName())
-                .phone(request.getPhone())
+                .name(request.getName().trim())
+                .phone(request.getPhone().trim())
                 .email(request.getEmail())
                 .address(request.getAddress())
                 .gstin(request.getGstin())
@@ -59,10 +63,10 @@ public class CustomerService {
         Customer customer = customerRepository.findById(customerId)
                 .orElseThrow(() -> new ResourceNotFoundException("Customer", customerId));
 
-        customer.setName(request.getName());
-        customer.setEmail(request.getEmail());
-        customer.setAddress(request.getAddress());
-        customer.setGstin(request.getGstin());
+        customer.setName(request.getName().trim());
+        if (request.getEmail() != null) customer.setEmail(request.getEmail());
+        if (request.getAddress() != null) customer.setAddress(request.getAddress());
+        if (request.getGstin() != null) customer.setGstin(request.getGstin());
         return customerRepository.save(customer);
     }
 }

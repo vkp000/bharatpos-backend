@@ -25,16 +25,16 @@ public class DashboardService {
         LocalDateTime weekStart = todayStart.minusDays(7);
         LocalDateTime monthStart = todayStart.withDayOfMonth(1);
 
-        BigDecimal todayRevenue = saleRepository
-                .sumRevenueByStoreAndDateRange(storeId, todayStart, todayEnd);
-        Long todayBills = saleRepository
-                .countSalesByStoreAndDateRange(storeId, todayStart, todayEnd);
-        BigDecimal todayGST = saleRepository
-                .sumTaxByStoreAndDateRange(storeId, todayStart, todayEnd);
-        BigDecimal weeklyRevenue = saleRepository
-                .sumRevenueByStoreAndDateRange(storeId, weekStart, todayEnd);
-        BigDecimal monthlyRevenue = saleRepository
-                .sumRevenueByStoreAndDateRange(storeId, monthStart, todayEnd);
+        BigDecimal todayRevenue = orZero(
+                saleRepository.sumRevenueByStoreAndDateRange(storeId, todayStart, todayEnd));
+        Long todayBills = orZeroLong(
+                saleRepository.countSalesByStoreAndDateRange(storeId, todayStart, todayEnd));
+        BigDecimal todayGST = orZero(
+                saleRepository.sumTaxByStoreAndDateRange(storeId, todayStart, todayEnd));
+        BigDecimal weeklyRevenue = orZero(
+                saleRepository.sumRevenueByStoreAndDateRange(storeId, weekStart, todayEnd));
+        BigDecimal monthlyRevenue = orZero(
+                saleRepository.sumRevenueByStoreAndDateRange(storeId, monthStart, todayEnd));
 
         var lowStock = inventoryRepository.findLowStockByStore(storeId);
         var recentSales = saleRepository.findTop10ByStoreIdOrderByCreatedAtDesc(storeId);
@@ -51,16 +51,15 @@ public class DashboardService {
                         DashboardResponse.LowStockDto.builder()
                                 .productName(inv.getProduct().getName())
                                 .currentStock(inv.getQuantity())
-                                .reorderLevel(inv.getProduct().getReorderLevel())
+                                .reorderLevel(inv.getProduct().getReorderLevel() != null
+                                        ? inv.getProduct().getReorderLevel() : 0)
                                 .category(inv.getProduct().getCategory())
                                 .build()).toList())
                 .recentBills(recentSales.stream().map(sale ->
                         DashboardResponse.RecentBillDto.builder()
                                 .invoiceNumber(sale.getInvoiceNumber())
-                                .customerName(
-                                        sale.getCustomer() != null
-                                                ? sale.getCustomer().getName()
-                                                : "Walk-in")
+                                .customerName(sale.getCustomer() != null
+                                        ? sale.getCustomer().getName() : "Walk-in")
                                 .amount(sale.getGrandTotal())
                                 .paymentMode(sale.getPaymentMode().name())
                                 .status(sale.getStatus().name())
@@ -69,12 +68,21 @@ public class DashboardService {
                 .build();
     }
 
-    private String getTimeAgo(java.time.LocalDateTime dateTime) {
-        long minutes = ChronoUnit.MINUTES.between(dateTime, LocalDateTime.now());
-        if (minutes < 1) return "Just now";
-        if (minutes < 60) return minutes + " min ago";
-        long hours = minutes / 60;
-        if (hours < 24) return hours + " hr ago";
-        return (hours / 24) + " days ago";
+    private BigDecimal orZero(BigDecimal val) {
+        return val != null ? val : BigDecimal.ZERO;
+    }
+
+    private Long orZeroLong(Long val) {
+        return val != null ? val : 0L;
+    }
+
+    private String getTimeAgo(LocalDateTime dt) {
+        if (dt == null) return "—";
+        long mins = ChronoUnit.MINUTES.between(dt, LocalDateTime.now());
+        if (mins < 1) return "Just now";
+        if (mins < 60) return mins + " min ago";
+        long hrs = mins / 60;
+        if (hrs < 24) return hrs + " hr ago";
+        return (hrs / 24) + " days ago";
     }
 }

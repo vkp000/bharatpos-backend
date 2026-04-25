@@ -32,12 +32,14 @@ public class ProductService {
     }
 
     public List<Product> searchProducts(Long tenantId, String query) {
+        if (query == null || query.isBlank()) return getAllProducts(tenantId);
         return productRepository.searchProducts(tenantId, query);
     }
 
     public Product getByBarcode(Long tenantId, String barcode) {
         return productRepository.findByBarcodeAndTenantId(barcode, tenantId)
-                .orElseThrow(() -> new ResourceNotFoundException("Product not found with barcode: " + barcode));
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Product not found with barcode: " + barcode));
     }
 
     @Transactional
@@ -45,15 +47,20 @@ public class ProductService {
         Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Tenant", tenantId));
 
-        // Generate SKU if not provided
-        String sku = request.getSku() != null ? request.getSku()
+        String sku = (request.getSku() != null && !request.getSku().isBlank())
+                ? request.getSku()
                 : "SKU-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+
+        // Ensure unique SKU
+        while (productRepository.findBySkuAndTenantId(sku, tenantId).isPresent()) {
+            sku = "SKU-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+        }
 
         Product product = Product.builder()
                 .tenant(tenant)
-                .name(request.getName())
+                .name(request.getName().trim())
                 .sku(sku)
-                .barcode(request.getBarcode())
+                .barcode(request.getBarcode() != null ? request.getBarcode().trim() : null)
                 .category(request.getCategory())
                 .unit(request.getUnit() != null ? request.getUnit() : "PCS")
                 .hsnCode(request.getHsnCode())
@@ -69,7 +76,6 @@ public class ProductService {
 
         product = productRepository.save(product);
 
-        // Create inventory record for the store
         Store store = storeRepository.findById(storeId)
                 .orElseThrow(() -> new ResourceNotFoundException("Store", storeId));
 
@@ -89,18 +95,19 @@ public class ProductService {
                 .orElseThrow(() -> new ResourceNotFoundException("Product", productId));
 
         if (!product.getTenant().getId().equals(tenantId)) {
-            throw new BadRequestException("Product does not belong to this tenant");
+            throw new BadRequestException("Access denied");
         }
 
-        product.setName(request.getName());
-        product.setBarcode(request.getBarcode());
-        product.setCategory(request.getCategory());
-        product.setHsnCode(request.getHsnCode());
-        product.setGstRate(request.getGstRate());
-        product.setCostPrice(request.getCostPrice());
-        product.setSellingPrice(request.getSellingPrice());
-        product.setReorderLevel(request.getReorderLevel());
-        product.setReorderQty(request.getReorderQty());
+        product.setName(request.getName().trim());
+        if (request.getBarcode() != null) product.setBarcode(request.getBarcode().trim());
+        if (request.getCategory() != null) product.setCategory(request.getCategory());
+        if (request.getUnit() != null) product.setUnit(request.getUnit());
+        if (request.getHsnCode() != null) product.setHsnCode(request.getHsnCode());
+        if (request.getGstRate() != null) product.setGstRate(request.getGstRate());
+        if (request.getCostPrice() != null) product.setCostPrice(request.getCostPrice());
+        if (request.getSellingPrice() != null) product.setSellingPrice(request.getSellingPrice());
+        if (request.getReorderLevel() != null) product.setReorderLevel(request.getReorderLevel());
+        if (request.getSupplierName() != null) product.setSupplierName(request.getSupplierName());
 
         return productRepository.save(product);
     }
@@ -111,7 +118,7 @@ public class ProductService {
                 .orElseThrow(() -> new ResourceNotFoundException("Product", productId));
 
         if (!product.getTenant().getId().equals(tenantId)) {
-            throw new BadRequestException("Product does not belong to this tenant");
+            throw new BadRequestException("Access denied");
         }
 
         product.setActive(false);
