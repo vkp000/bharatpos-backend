@@ -15,7 +15,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -31,6 +30,7 @@ public class SaleService {
     private final CustomerRepository customerRepository;
     private final StoreRepository storeRepository;
     private final UserRepository userRepository;
+    private final SubscriptionRepository subscriptionRepository; // ✅ Added
 
     @Transactional
     public SaleResponse createSale(Long tenantId, Long userId, CreateSaleRequest request) {
@@ -133,6 +133,13 @@ public class SaleService {
             customer.setLoyaltyPoints(customer.getLoyaltyPoints() + pointsEarned);
             updateSegment(customer);
             customerRepository.save(customer);
+        }
+
+        // ✅ Increment invoice count for tenant's subscription tracking
+        try {
+            subscriptionRepository.incrementInvoiceCount(tenantId);
+        } catch (Exception e) {
+            log.warn("Could not increment invoice count for tenant {}: {}", tenantId, e.getMessage());
         }
 
         log.info("Sale created: {} | ₹{} | Store: {}",
