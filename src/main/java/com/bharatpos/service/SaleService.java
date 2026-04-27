@@ -30,7 +30,8 @@ public class SaleService {
     private final CustomerRepository customerRepository;
     private final StoreRepository storeRepository;
     private final UserRepository userRepository;
-    private final SubscriptionRepository subscriptionRepository; // ✅ Added
+    private final WhatsAppService whatsAppService;
+    private final SubscriptionRepository subscriptionRepository;
 
     @Transactional
     public SaleResponse createSale(Long tenantId, Long userId, CreateSaleRequest request) {
@@ -53,7 +54,6 @@ public class SaleService {
             Product product = productRepository.findById(itemReq.getProductId())
                     .orElseThrow(() -> new ResourceNotFoundException("Product", itemReq.getProductId()));
 
-            // Check stock
             var inventoryOpt = inventoryRepository.findByProductIdAndStoreId(
                     product.getId(), store.getId());
 
@@ -69,8 +69,7 @@ public class SaleService {
 
             BigDecimal lineTotal = itemReq.getUnitPrice()
                     .multiply(BigDecimal.valueOf(itemReq.getQuantity()));
-            BigDecimal gstRate = product.getGstRate() != null
-                    ? product.getGstRate() : BigDecimal.ZERO;
+            BigDecimal gstRate = product.getGstRate() != null ? product.getGstRate() : BigDecimal.ZERO;
             BigDecimal taxAmount = BigDecimal.ZERO;
 
             if (gstRate.compareTo(BigDecimal.ZERO) > 0) {
@@ -95,8 +94,7 @@ public class SaleService {
 
         BigDecimal discountPct = request.getDiscountPercent() != null
                 ? request.getDiscountPercent() : BigDecimal.ZERO;
-        BigDecimal discountAmt = subtotal
-                .multiply(discountPct)
+        BigDecimal discountAmt = subtotal.multiply(discountPct)
                 .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
         BigDecimal grandTotal = subtotal.subtract(discountAmt);
 
@@ -124,27 +122,46 @@ public class SaleService {
         saleItems.forEach(item -> item.setSale(finalSale));
         saleItemRepository.saveAll(saleItems);
 
+        // Update customer stats
         if (customer != null) {
             customer.setTotalSpend(customer.getTotalSpend().add(grandTotal));
             customer.setTotalVisits(customer.getTotalVisits() + 1);
             customer.setLastVisit(LocalDateTime.now());
-            int pointsEarned = grandTotal
-                    .divide(BigDecimal.TEN, 0, RoundingMode.FLOOR).intValue();
+            int pointsEarned = grandTotal.divide(BigDecimal.TEN, 0, RoundingMode.FLOOR).intValue();
             customer.setLoyaltyPoints(customer.getLoyaltyPoints() + pointsEarned);
             updateSegment(customer);
             customerRepository.save(customer);
+
+            // Auto WhatsApp
+            if (customer.getPhone() != null && !customer.getPhone().isBlank()
+                    && Boolean.TRUE.equals(request.getSendWhatsApp())) {
+                final String phone = customer.getPhone();
+                final String name = customer.getName();
+                final String inv = invoiceNumber;
+                final BigDecimal total = grandTotal;
+                final int pts = pointsEarned;
+                final int loyaltyBalance = customer.getLoyaltyPoints();
+
+                whatsAppService.sendInvoice(tenantId, phone, name, inv, total,
+                        request.getPaymentMode().name());
+
+                if (pts > 0) {
+                    whatsAppService.sendLoyaltyUpdate(tenantId, phone, name, pts, loyaltyBalance);
+                }
+
+                sale.setWhatsappSent(true);
+                sale = saleRepository.save(sale);
+            }
         }
 
-        // ✅ Increment invoice count for tenant's subscription tracking
+        // Increment subscription invoice count
         try {
             subscriptionRepository.incrementInvoiceCount(tenantId);
         } catch (Exception e) {
-            log.warn("Could not increment invoice count for tenant {}: {}", tenantId, e.getMessage());
+            log.warn("Could not increment invoice count: {}", e.getMessage());
         }
 
-        log.info("Sale created: {} | ₹{} | Store: {}",
-                invoiceNumber, grandTotal, store.getName());
-
+        log.info("Sale created: {} | ₹{} | Store: {}", invoiceNumber, grandTotal, store.getName());
         return buildResponse(sale, saleItems, customer);
     }
 
